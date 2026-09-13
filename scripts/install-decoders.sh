@@ -84,8 +84,17 @@ cmake -S "$ICE9_SRC" -B "$ICE9_BUILD" \
     -DUSE_VKFFT=OFF \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_PREFIX_PATH="/opt/homebrew"
-make -C "$ICE9_BUILD" -j
-make -C "$ICE9_BUILD" install
+# Build only the ice9-bluetooth binary target. The project also defines test
+# executables (test_fsk and friends) that are not guarded by BUILD_TESTING and
+# fail to locate liquid/liquid.h on this toolchain; a plain "make" would build
+# them and abort under set -e even though the binary itself compiles cleanly.
+cmake --build "$ICE9_BUILD" --target ice9-bluetooth -j
+# Install the binary by copy rather than "make install", which would first
+# rebuild the whole "all" target (including the broken tests). The upstream
+# install rule only places this one binary in bin plus an optional Wireshark
+# extcap symlink that rfmon does not use.
+mkdir -p "$PREFIX/bin"
+install -m 0755 "$ICE9_BUILD/ice9-bluetooth" "$PREFIX/bin/ice9-bluetooth"
 
 echo "==> Verifying install"
 PYTHONPATH="$SITE_PACKAGES" "$GR_PYTHON" -c "import ieee802_11, foo"
