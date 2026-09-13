@@ -262,7 +262,7 @@ const dwellSampleRate = 20_000_000
 // output to w. Canceling ctx sends SIGINT to the process and allows up to
 // WaitDelay for it to exit before Run forcibly kills it.
 func (r TransferRunner) Dwell(ctx context.Context, w io.Writer, freqHz int64, dur time.Duration) error {
-	n := int64(dur.Seconds()) * dwellSampleRate
+	n := dwellSampleRate * dur.Nanoseconds() / int64(time.Second)
 
 	cmd := exec.CommandContext(ctx, r.Bin,
 		"-r", "-",

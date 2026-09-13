@@ -127,6 +127,16 @@ func runWifiStep(ctx context.Context, d Deps, step Step) bool {
 		sightings = d.DrainWifi(Window{Start: start, End: end.Add(wifiGrace)})
 	}
 
+	// The parser leaves Channel unset (0) when a frame has no DS
+	// Parameter Set element (e.g. probe requests); fall back to the
+	// dwell's own channel so wifi_sightings.channel, which is NOT NULL,
+	// never stores a misleading 0.
+	for i := range sightings {
+		if sightings[i].Channel == 0 {
+			sightings[i].Channel = step.Channel
+		}
+	}
+
 	status, errMsg := dwellStatus(err)
 	recordDwell(d, store.Dwell{
 		Kind:       step.Kind,

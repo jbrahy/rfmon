@@ -244,6 +244,50 @@ func TestRun_WifiDwellErrorRecordsFailedAndContinues(t *testing.T) {
 	}
 }
 
+func TestRunWifiStep_ZeroChannelSightingGetsStepChannel(t *testing.T) {
+	ctx := context.Background()
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	var gotSightings []store.WifiSighting
+
+	d := Deps{
+		WifiDwell: noopWifi,
+		DrainWifi: func(Window) []store.WifiSighting {
+			return []store.WifiSighting{
+				{MAC: "aa:bb:cc:dd:ee:ff", Channel: 0},
+				{MAC: "11:22:33:44:55:66", Channel: 11},
+			}
+		},
+		BleDwell: noopBle,
+		Sweep:    noopSweep,
+		RecordDwell: func(dw store.Dwell, w []store.WifiSighting, b []store.BleSighting) error {
+			gotSightings = w
+			return nil
+		},
+		UpdateCounts: noopUpdateCounts,
+		Now:          func() time.Time { return clock },
+		Sleep:        noopSleep,
+		Dwell:        3 * time.Second,
+		Pause:        5 * time.Second,
+		SweepEvery:   time.Hour,
+	}
+
+	step := Step{Kind: "wifi", Channel: 6, CenterMHz: 2437}
+	if !runWifiStep(ctx, d, step) {
+		t.Fatal("runWifiStep returned false, want true")
+	}
+
+	if len(gotSightings) != 2 {
+		t.Fatalf("recorded sightings = %d, want 2", len(gotSightings))
+	}
+	if gotSightings[0].Channel != step.Channel {
+		t.Errorf("zero-channel sighting Channel = %d, want %d (step.Channel)", gotSightings[0].Channel, step.Channel)
+	}
+	if gotSightings[1].Channel != 11 {
+		t.Errorf("nonzero-channel sighting Channel = %d, want unchanged 11", gotSightings[1].Channel)
+	}
+}
+
 func TestRun_CancelBetweenStepsStopsRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

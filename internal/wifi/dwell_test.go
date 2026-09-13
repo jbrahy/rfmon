@@ -88,6 +88,24 @@ func TestTransferRunnerDwellWritesExpectedBytes(t *testing.T) {
 	}
 }
 
+func TestTransferRunnerDwellSubSecondWritesExpectedBytes(t *testing.T) {
+	r := TransferRunner{Bin: "testdata/fake_transfer.sh"}
+	var buf bytes.Buffer
+
+	dur := 500 * time.Millisecond
+	wantN := dwellSampleRate * dur.Nanoseconds() / int64(time.Second)
+
+	if err := r.Dwell(context.Background(), &buf, 2_412_000_000, dur); err != nil {
+		t.Fatalf("Dwell: %v", err)
+	}
+	if wantN == 0 {
+		t.Fatal("wantN = 0, test is not exercising the sub-second case")
+	}
+	if int64(buf.Len()) != wantN {
+		t.Errorf("wrote %d bytes, want %d", buf.Len(), wantN)
+	}
+}
+
 func TestTransferRunnerDwellCanceledContextReturnsPromptly(t *testing.T) {
 	r := TransferRunner{Bin: "testdata/fake_transfer.sh"}
 	ctx, cancel := context.WithCancel(context.Background())

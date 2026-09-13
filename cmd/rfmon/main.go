@@ -246,11 +246,13 @@ func runWithDecoders(ctx context.Context, dd decoderDeps, srv *http.Server) {
 
 	deps := scheduler.Deps{
 		WifiDwell: func(ctx context.Context, step scheduler.Step) error {
+			dctx, cancel := context.WithTimeout(ctx, dd.dwell+10*time.Second)
+			defer cancel()
 			if err := supervisor.Ensure(); err != nil {
 				return err
 			}
 			freqHz := int64(step.CenterMHz) * 1_000_000
-			return transfer.Dwell(ctx, supervisor.Stdin(), freqHz, dd.dwell)
+			return transfer.Dwell(dctx, supervisor.Stdin(), freqHz, dd.dwell)
 		},
 		DrainWifi: func(window scheduler.Window) []store.WifiSighting {
 			// The aggregator collects every frame since the last drain
