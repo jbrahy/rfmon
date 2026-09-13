@@ -8,8 +8,10 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -31,6 +33,12 @@ func main() {
 	passes := flag.Int("passes", 5, "hackrf_sweep passes per poll")
 	flag.Parse()
 
+	for _, tool := range []string{"hackrf_sweep", "rrdtool"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			log.Fatalf("%s not found in PATH: brew install hackrf rrdtool", tool)
+		}
+	}
+
 	rrdDir := filepath.Join(*dataDir, "rrd")
 	specDir := filepath.Join(*dataDir, "spectrum")
 	for _, d := range []string{rrdDir, specDir} {
@@ -46,8 +54,12 @@ func main() {
 	defer stop()
 
 	srv := &http.Server{Addr: *listen, Handler: web.New(store, bands.All).Handler()}
+	ln, err := net.Listen("tcp", *listen)
+	if err != nil {
+		log.Fatal(err)
+	}
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
 	}()
@@ -74,6 +86,10 @@ func poll(ctx context.Context, runner sweep.Runner, store rrd.Store, specDir str
 	s, err := runner.Run(ctx)
 	if err != nil {
 		log.Printf("poll failed: %v", err)
+		return
+	}
+	if len(s.Hz) != sweep.ExpectedBins {
+		log.Printf("poll failed: got %d bins, want %d", len(s.Hz), sweep.ExpectedBins)
 		return
 	}
 	sweep.DropSpurs(s)

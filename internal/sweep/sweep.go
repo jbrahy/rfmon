@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -112,6 +113,10 @@ func DropSpurs(s Spectrum) {
 	}
 }
 
+// ExpectedBins is the number of frequency bins one full sweep produces with
+// the fixed -f 1:6000 -w 250000 arguments (1200 rows of 21 bins each).
+const ExpectedBins = 25200
+
 // Runner executes hackrf_sweep over 1 MHz to 6 GHz.
 type Runner struct {
 	Bin     string
@@ -126,7 +131,11 @@ func (r Runner) Run(ctx context.Context) (Spectrum, error) {
 	cmd := exec.CommandContext(ctx, r.Bin,
 		"-f", "1:6000", "-w", "250000", "-l", "32", "-g", "20",
 		"-N", strconv.Itoa(r.Passes))
-	cmd.WaitDelay = time.Second
+	// On cancellation, ask hackrf_sweep to exit cleanly so it can run its
+	// own hackrf_stop_rx/hackrf_close teardown on shared hardware. SIGKILL
+	// remains the fallback if it does not exit within WaitDelay.
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = 3 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

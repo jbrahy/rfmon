@@ -4,6 +4,7 @@ package rrd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -102,7 +103,9 @@ func (s Store) Graph(slug, label, period string) ([]byte, error) {
 }
 
 func (s Store) run(stdout io.Writer, args ...string) error {
-	cmd := exec.Command(s.Bin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.Bin, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
