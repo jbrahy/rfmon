@@ -36,11 +36,6 @@ import (
 
 const keepSpectrumDays = 7
 
-// bleChannels is the number of BLE advertising/data channels ice9-bluetooth
-// is asked to cover per dwell (see the design spec: 20 channels ran at 98
-// to 101 percent of real time, so 16 leaves headroom).
-const bleChannels = 16
-
 func main() {
 	dataDir := flag.String("data", "./data", "directory for rrd and spectrum files")
 	listen := flag.String("listen", "127.0.0.1:8080", "web server address")
@@ -226,10 +221,22 @@ func runWithDecoders(ctx context.Context, dd decoderDeps, srv *http.Server) {
 	agg := wifi.NewAggregator()
 	var aggMu sync.Mutex
 	go func() {
-		for tf := range supervisor.Frames() {
-			aggMu.Lock()
-			agg.Add(tf.Frame)
-			aggMu.Unlock()
+		frames := supervisor.Frames()
+		for {
+			select {
+			case <-ctx.Done():
+				// supervisor.Frames() is never closed by Supervisor.Close,
+				// so without this the goroutine would block on the
+				// receive below forever after shutdown.
+				return
+			case tf, ok := <-frames:
+				if !ok {
+					return
+				}
+				aggMu.Lock()
+				agg.Add(tf.Frame)
+				aggMu.Unlock()
+			}
 		}
 	}()
 
