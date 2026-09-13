@@ -241,7 +241,7 @@ func runWithDecoders(ctx context.Context, dd decoderDeps, srv *http.Server) {
 	}()
 
 	transfer := wifi.TransferRunner{Bin: "hackrf_transfer"}
-	bleRunner := ble.Runner{Bin: "ice9-bluetooth"}
+	bleRunner := ble.Runner{Bin: filepath.Join(dd.decodersDir, "bin", "ice9-bluetooth")}
 	blePcapPath := filepath.Join(dd.tmpDir, "ble-dwell.pcap")
 
 	deps := scheduler.Deps{

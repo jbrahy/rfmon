@@ -228,10 +228,8 @@ running the same import check and `-h` check rfmon itself uses to verify
 the install, and prints the `-decoders`/`-gr-python` flags to pass to
 rfmon.
 
-`ice9-bluetooth` is invoked by its bare name, not by its full install path,
-so its directory (`$RFMON_DECODERS/bin`, or `$HOME/.local/share/rfmon/decoders/bin`
-by default) needs to be on `PATH` when rfmon runs, in addition to passing
-`-decoders`.
+rfmon finds `ice9-bluetooth` under the `-decoders` prefix (`<decoders>/bin/ice9-bluetooth`)
+on its own; nothing needs to be added to `PATH` for it.
 
 ### New flags
 
