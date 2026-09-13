@@ -184,6 +184,110 @@ Band metrics:
 All dB values are the uncalibrated power scale reported by `hackrf_sweep`,
 not dBm.
 
+## WiFi and Bluetooth
+
+Unless started with `-spectrum-only`, rfmon also time-slices the same
+HackRF to decode WiFi management frames and Bluetooth LE advertisements,
+alongside the spectrum sweep. It captures:
+
+- WiFi beacon and probe response frames on channels 1, 6, and 11 (802.11
+  OFDM only, decoded with GNU Radio's `gr-ieee802-11`), giving access point
+  SSID, channel, security, and whether the source MAC looks randomized.
+- Bluetooth LE advertisements across the primary advertising channels,
+  captured with `ice9-bluetooth` (from `ice9-bluetooth-sniffer`), giving
+  device address, address type, advertised name (when present), and
+  manufacturer company ID.
+
+### Dwell cycle
+
+rfmon cycles through WiFi channel 1, channel 6, channel 11, then a BLE
+dwell, then either a spectrum sweep (if `-sweep-every` has elapsed since the
+last one) or a pause, and repeats. Each WiFi and BLE dwell runs for
+`-dwell` (default 3s); `-pause` (default 5s) separates cycles that do not
+include a sweep. On a live run with the default flags, one cycle without a
+sweep measured about 17 seconds; a cycle that also runs a spectrum sweep
+measured about 74 to 80 seconds. Every dwell and sweep is recorded with a
+status, so a failed WiFi or BLE dwell does not stop the cycle.
+
+### Installing the decoders
+
+WiFi and Bluetooth decoding need three pieces of software beyond the
+`hackrf`/`rrdtool` tools: the GNU Radio out-of-tree modules `gr-foo` and
+`gr-ieee802-11` (imported by the OFDM decoder script), and the
+`ice9-bluetooth` binary from `ice9-bluetooth-sniffer`. Build and install all
+three with:
+
+```sh
+scripts/install-decoders.sh
+```
+
+This clones each project at a pinned commit, builds it, and installs it
+into `$HOME/.local/share/rfmon/decoders` (override with `RFMON_DECODERS`).
+It requires Homebrew and no `sudo`, and is safe to re-run. It ends by
+running the same import check and `-h` check rfmon itself uses to verify
+the install, and prints the `-decoders`/`-gr-python` flags to pass to
+rfmon.
+
+`ice9-bluetooth` is invoked by its bare name, not by its full install path,
+so its directory (`$RFMON_DECODERS/bin`, or `$HOME/.local/share/rfmon/decoders/bin`
+by default) needs to be on `PATH` when rfmon runs, in addition to passing
+`-decoders`.
+
+### New flags
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-dwell` | `3s` | Length of each WiFi and BLE dwell. |
+| `-sweep-every` | `60s` | Minimum time between spectrum sweeps once WiFi/BLE dwells are running. |
+| `-decoders` | `$HOME/.local/share/rfmon/decoders` | Decoder install prefix from `scripts/install-decoders.sh`. |
+| `-gr-python` | `/opt/homebrew/opt/gnuradio/libexec/venv/bin/python` | GNU Radio's Python interpreter, used to run the OFDM decoder script. |
+| `-decoder-script` | `decoders/wifi_ofdm_rx.py` | Path to the OFDM decoder script. Resolved relative to the working directory, so run rfmon from the repo root or pass an absolute path. |
+| `-spectrum-only` | `false` | Run only the spectrum sweep, with no WiFi or BLE decoding and no decoder tools required. |
+
+`-pause` (see the main Flags table) still controls the gap between cycles
+that do not include a sweep.
+
+### Web pages
+
+| Route | Content |
+|---|---|
+| `GET /wifi` | WiFi access points and clients seen, with last-seen time and signal. |
+| `GET /bluetooth` | BLE devices seen, with last-seen time and signal. |
+
+Both pages also have day/week/month/year count graphs, served the same way
+as the band graphs (`GET /graph/<slug>-<period>.png`).
+
+### Database
+
+WiFi and BLE data is stored in a SQLite database at `data/rfmon.db`
+(alongside the RRD and spectrum files under `-data`). Summary of the
+schema:
+
+- `dwells`: one row per WiFi, BLE, or sweep attempt, with `dwell_kind`,
+  `status` (`ok` or `failed`), an error message when failed, and a
+  frame/packet count.
+- `wifi_devices`: one row per (MAC, device kind) seen, with SSID, channel,
+  security, whether the MAC looks randomized, first/last seen, sighting
+  count, and best SNR.
+- `wifi_sightings`: per-dwell WiFi detail rows behind `wifi_devices`.
+- `ble_devices`: one row per (address, address type) seen, with advertised
+  name, manufacturer company ID, first/last seen, sighting count, and best
+  RSSI.
+- `ble_sightings`: per-dwell BLE detail rows behind `ble_devices`.
+
+### Privacy
+
+WiFi and BLE decoding is passive receive only: rfmon never transmits.
+Captured data stays local in the SQLite database under `-data`; nothing is
+sent anywhere else. Do not publish SSIDs, MAC addresses, or BLE addresses
+captured from a live run; the schema summary and any screenshots or reports
+generated from real data should have identifiers removed or replaced first.
+
+The WiFi decoder only handles 802.11 OFDM frames (802.11a/g/n on channels
+1, 6, and 11). Older or legacy devices that beacon only at 802.11b DSSS
+rates are not decoded, so the WiFi device list will miss some access
+points that are visible in the 2.4 GHz spectrum graph.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md): packages, the data flow of one poll,
@@ -207,14 +311,6 @@ it is not installed. The `internal/sweep` parser test uses
 88 to 128 MHz. The poll and runner tests use small shell scripts in the same
 directory in place of `hackrf_sweep`, so no HackRF is needed to run the test
 suite.
-
-## Roadmap
-
-Planned, not built yet:
-
-- A WiFi network scanner and a Bluetooth LE device scanner that time-share
-  the same HackRF with the spectrum sweep, each with its own reports in the
-  same web server.
 
 ## License
 
