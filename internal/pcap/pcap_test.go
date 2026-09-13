@@ -168,3 +168,56 @@ func TestNewReaderUnknownMagic(t *testing.T) {
 		t.Fatal("NewReader returned nil error for unknown magic")
 	}
 }
+
+func TestNextZeroPayloadIsTruncated(t *testing.T) {
+	var buf bytes.Buffer
+	buildGlobalHeader(&buf, binary.LittleEndian, magicLE, 127)
+	// Full record header declaring a 5 byte payload, but the stream ends
+	// right there: zero payload bytes follow. io.ReadFull on an empty
+	// remainder returns bare io.EOF, which must not be mistaken for a
+	// clean end of the packet stream.
+	binary.Write(&buf, binary.LittleEndian, uint32(1700000000))
+	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	binary.Write(&buf, binary.LittleEndian, uint32(5))
+	binary.Write(&buf, binary.LittleEndian, uint32(5))
+
+	r, _, err := NewReader(&buf)
+	if err != nil {
+		t.Fatalf("NewReader returned error: %v", err)
+	}
+
+	_, err = r.Next()
+	if err == nil {
+		t.Fatal("Next returned nil error for a record header with no payload following")
+	}
+	if errors.Is(err, io.EOF) {
+		t.Fatalf("Next err = %v, want non-EOF error (a truncated capture must not look like a clean stream end)", err)
+	}
+}
+
+func TestNextRecordLengthExceedsBound(t *testing.T) {
+	var buf bytes.Buffer
+	// snaplen is 65535 per buildGlobalHeader, so the bound is 65535.
+	buildGlobalHeader(&buf, binary.LittleEndian, magicLE, 127)
+	// Record header claims an incl_len far beyond the bound. No payload
+	// bytes are written: if Next tried to allocate before checking the
+	// bound, it would attempt a multi-gigabyte slice instead of failing
+	// cleanly, which this test would hang or crash on rather than pass.
+	binary.Write(&buf, binary.LittleEndian, uint32(1700000000))
+	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	binary.Write(&buf, binary.LittleEndian, uint32(0xfffffffe))
+	binary.Write(&buf, binary.LittleEndian, uint32(0xfffffffe))
+
+	r, _, err := NewReader(&buf)
+	if err != nil {
+		t.Fatalf("NewReader returned error: %v", err)
+	}
+
+	_, err = r.Next()
+	if err == nil {
+		t.Fatal("Next returned nil error for a record length exceeding the bound")
+	}
+	if errors.Is(err, io.EOF) {
+		t.Fatalf("Next err = %v, want non-EOF error", err)
+	}
+}
