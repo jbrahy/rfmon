@@ -47,7 +47,19 @@ func TestDwellContextCanceled(t *testing.T) {
 
 	start := time.Now()
 	go func() {
-		time.Sleep(150 * time.Millisecond)
+		// The fake writes "<pcap>.ready" only after it has written the
+		// capture and armed its signal trap. Waiting for that marker before
+		// canceling means the signal always lands on the installed handler,
+		// so the fake exits promptly rather than being SIGKILLed after the
+		// WaitDelay. dur (10s) is far longer than this, so the cancel, not
+		// the dur timeout, is still what stops the process.
+		readyPath := pcapPath + ".ready"
+		for i := 0; i < 500; i++ {
+			if _, err := os.Stat(readyPath); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		cancel()
 	}()
 

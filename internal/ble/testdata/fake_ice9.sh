@@ -53,12 +53,26 @@ with open(path, "wb") as f:
         f.write(packet)
 PYEOF
 
-# Bash only runs a trap once the current foreground command finishes, so a
-# `sleep`-based wait loop would delay SIGINT handling by up to the sleep
-# interval. Waiting on a backgrounded child via the `wait` builtin instead
-# lets the trap fire as soon as the signal arrives. (86400 = one day; plain
-# "sleep infinity" is a GNU coreutils extension not present on macOS.)
-sleep 86400 &
+# Wait to be signaled, then exit promptly. Two details matter for a prompt
+# exit under load:
+#   1. Install the trap before backgrounding anything, so there is no window
+#      where a signal arrives before the handler is set and bash's default
+#      action leaves an orphan behind.
+#   2. Redirect the backgrounded sleep's descriptors to /dev/null so it can
+#      never hold this process's stdout/stderr pipe open. Otherwise, if the
+#      sleep is orphaned, the caller's Wait blocks on the still-open pipe for
+#      the full WaitDelay before returning.
+# Bash runs a trap only once the current foreground command finishes, so a
+# `sleep`-based loop would delay the trap; waiting on a backgrounded child via
+# the `wait` builtin lets the trap fire as soon as the signal arrives.
+# (86400 = one day; plain "sleep infinity" is a GNU coreutils extension not
+# present on macOS.)
+child=""
+trap 'if [[ -n "$child" ]]; then kill "$child" 2>/dev/null; fi; exit 0' INT TERM
+sleep 86400 >/dev/null 2>&1 &
 child=$!
-trap 'kill "$child" 2>/dev/null; exit 0' INT TERM
+# Signal readiness only after the trap is armed and the wait child exists, so
+# a test that waits for this marker before canceling can never deliver the
+# signal into the window before the handler is installed.
+: > "${pcap_path}.ready"
 wait "$child"
