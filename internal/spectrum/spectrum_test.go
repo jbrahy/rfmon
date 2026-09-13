@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"hackrfone/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/sweep"
 )
 
 func TestQuantize(t *testing.T) {

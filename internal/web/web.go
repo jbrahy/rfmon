@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"hackrfone/internal/bands"
-	"hackrfone/internal/rrd"
+	"github.com/jbrahy/rfmon/internal/bands"
+	"github.com/jbrahy/rfmon/internal/rrd"
 )
 
 type Grapher interface {

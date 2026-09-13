@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"hackrfone/internal/bands"
+	"github.com/jbrahy/rfmon/internal/bands"
 )
 
 func newStore(t *testing.T) Store {

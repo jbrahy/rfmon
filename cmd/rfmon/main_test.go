@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"hackrfone/internal/rrd"
-	"hackrfone/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/rrd"
+	"github.com/jbrahy/rfmon/internal/sweep"
 )
 
 // TestPollRejectsPartialSweep covers F1: a sweep that returns fewer bins

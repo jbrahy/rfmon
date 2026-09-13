@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"hackrfone/internal/bands"
+	"github.com/jbrahy/rfmon/internal/bands"
 )
 
 // Store keeps one RRD file per band slug in Dir. Dir must not contain ':'

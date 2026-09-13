@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"hackrfone/internal/bands"
+	"github.com/jbrahy/rfmon/internal/bands"
 )
 
 type stubGrapher struct {

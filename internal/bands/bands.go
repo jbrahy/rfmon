@@ -6,7 +6,7 @@ import (
 	"math"
 	"slices"
 
-	"hackrfone/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/sweep"
 )
 
 type Band struct {

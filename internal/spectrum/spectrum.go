@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"hackrfone/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/sweep"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"hackrfone/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/sweep"
 )
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-3 }

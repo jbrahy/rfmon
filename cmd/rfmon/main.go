@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	"hackrfone/internal/bands"
-	"hackrfone/internal/rrd"
-	"hackrfone/internal/spectrum"
-	"hackrfone/internal/sweep"
-	"hackrfone/internal/web"
+	"github.com/jbrahy/rfmon/internal/bands"
+	"github.com/jbrahy/rfmon/internal/rrd"
+	"github.com/jbrahy/rfmon/internal/spectrum"
+	"github.com/jbrahy/rfmon/internal/sweep"
+	"github.com/jbrahy/rfmon/internal/web"
 )
 
 const keepSpectrumDays = 7
