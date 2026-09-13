@@ -9,10 +9,7 @@ import (
 	"time"
 )
 
-const (
-	magicLE = 0xa1b2c3d4
-	magicBE = 0xd4c3b2a1
-)
+const magicLE = 0xa1b2c3d4
 
 // buildGlobalHeader writes a 24 byte classic pcap global header using the
 // given byte order and magic number.
