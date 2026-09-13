@@ -49,14 +49,13 @@ func (r Runner) Dwell(ctx context.Context, center, channels int, pcapPath string
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("ble: starting %s: %w", r.Bin, err)
 	}
+	defer os.Remove(pcapPath)
 
 	if err := cmd.Wait(); err != nil && runCtx.Err() == nil {
 		// The process exited on its own, for a reason other than us
 		// stopping it via the dur timeout or a canceled ctx: a real error.
 		return nil, fmt.Errorf("ble: running %s: %w", r.Bin, err)
 	}
-
-	defer os.Remove(pcapPath)
 
 	return parseDwellPcap(pcapPath)
 }

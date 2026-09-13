@@ -10,6 +10,7 @@ import (
 )
 
 const fakeIce9Path = "testdata/fake_ice9.sh"
+const fakeIce9FailPath = "testdata/fake_ice9_fail.sh"
 
 func TestDwellWithFake(t *testing.T) {
 	pcapPath := filepath.Join(t.TempDir(), "capture.pcap")
@@ -70,6 +71,24 @@ func TestDwellContextCanceled(t *testing.T) {
 
 	if _, err := os.Stat(pcapPath); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("pcap file still exists after Dwell (stat err = %v), want it deleted", err)
+	}
+}
+
+func TestDwellDeletesPcapOnProcessError(t *testing.T) {
+	pcapPath := filepath.Join(t.TempDir(), "capture.pcap")
+
+	r := Runner{Bin: fakeIce9FailPath}
+	ctx := context.Background()
+
+	// dur is generous: the fake writes the pcap and exits non-zero on its
+	// own almost immediately, well before dur or SIGINT would apply.
+	_, err := r.Dwell(ctx, 2440, 2, pcapPath, 10*time.Second)
+	if err == nil {
+		t.Fatal("Dwell returned nil error for a process that exited with an error on its own")
+	}
+
+	if _, statErr := os.Stat(pcapPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("pcap file still exists after Dwell returned an error (stat err = %v), want it deleted", statErr)
 	}
 }
 
