@@ -26,11 +26,13 @@ func (g *stubGrapher) Graph(slug, label, period string) ([]byte, error) {
 }
 
 type stubReports struct {
-	aps     []store.WifiAP
-	clients []store.WifiClient
-	probed  []store.ProbedSSID
-	ble     []store.BleDeviceRow
-	err     error
+	aps       []store.WifiAP
+	clients   []store.WifiClient
+	probed    []store.ProbedSSID
+	ble       []store.BleDeviceRow
+	dailyWifi []store.DailyRow
+	dailyBle  []store.DailyRow
+	err       error
 }
 
 func (r *stubReports) WifiAPsSince(t time.Time, limit int) ([]store.WifiAP, error) {
@@ -47,6 +49,14 @@ func (r *stubReports) TopProbedSSIDs(t time.Time, limit int) ([]store.ProbedSSID
 
 func (r *stubReports) BleDevicesSince(t time.Time, limit int) ([]store.BleDeviceRow, error) {
 	return r.ble, r.err
+}
+
+func (r *stubReports) DailyWifi(t time.Time) ([]store.DailyRow, error) {
+	return r.dailyWifi, r.err
+}
+
+func (r *stubReports) DailyBle(t time.Time) ([]store.DailyRow, error) {
+	return r.dailyBle, r.err
 }
 
 type stubCounts struct {
@@ -191,7 +201,8 @@ func TestWifiPageRendersReports(t *testing.T) {
 				Sightings: 2, ProbedSSIDs: []string{"stub-probe"},
 			},
 		},
-		probed: []store.ProbedSSID{{SSID: "stub-probe", Count: 5}},
+		probed:    []store.ProbedSSID{{SSID: "stub-probe", Count: 5}},
+		dailyWifi: []store.DailyRow{{Date: "2026-09-12", Devices: 7, New: 4}},
 	}
 	h := New(&stubGrapher{}, testBands).WithReports(reports).Handler()
 	rec := get(t, h, "/wifi")
@@ -202,6 +213,8 @@ func TestWifiPageRendersReports(t *testing.T) {
 	for _, want := range []string{
 		"aa:bb:cc:dd:ee:01", "stub-network", "hidden", "aa:bb:cc:dd:ee:03",
 		"stub-probe", `src="/graph/wifi-day.png"`,
+		"2026-09-12", // daily table row
+		"randomized", // vendor of the randomized client
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("wifi page missing %q", want)
@@ -231,6 +244,7 @@ func TestBluetoothPageRendersReports(t *testing.T) {
 				Sightings: 4, BestRSSI: intPtr(-60),
 			},
 		},
+		dailyBle: []store.DailyRow{{Date: "2026-09-12", Devices: 82, New: 61}},
 	}
 	h := New(&stubGrapher{}, testBands).WithReports(reports).Handler()
 	rec := get(t, h, "/bluetooth")
@@ -240,6 +254,8 @@ func TestBluetoothPageRendersReports(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"11:22:33:44:55:66", "stub-device", `src="/graph/ble-day.png"`,
+		"Apple, Inc.", // company_id 76 translated to name
+		"2026-09-12",  // daily table row
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("bluetooth page missing %q", want)

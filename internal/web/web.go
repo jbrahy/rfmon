@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jbrahy/rfmon/internal/bands"
+	"github.com/jbrahy/rfmon/internal/oui"
 	"github.com/jbrahy/rfmon/internal/rrd"
 	"github.com/jbrahy/rfmon/internal/store"
 )
@@ -25,7 +26,12 @@ type Reports interface {
 	WifiClientsSince(t time.Time, limit int) ([]store.WifiClient, error)
 	TopProbedSSIDs(t time.Time, limit int) ([]store.ProbedSSID, error)
 	BleDevicesSince(t time.Time, limit int) ([]store.BleDeviceRow, error)
+	DailyWifi(t time.Time) ([]store.DailyRow, error)
+	DailyBle(t time.Time) ([]store.DailyRow, error)
 }
+
+// dailyDays is how far back the per-day summary tables reach.
+const dailyDays = 14
 
 // CountsGrapher renders RRD graphs for the WiFi/BLE counts RRDs (as opposed
 // to the per-band spectrum RRDs served by Grapher).
@@ -123,15 +129,20 @@ var wifiPage = template.Must(template.New("wifi").Parse(`<!doctype html>
 <h1>WiFi</h1>
 <img src="/graph/wifi-day.png" loading="lazy">
 <p><a href="/wifi/graphs">more graphs</a></p>
+<h2>Daily</h2>
+<table>
+<tr><th>Date</th><th>Networks and clients seen</th><th>New that day</th></tr>
+{{range .Daily}}<tr><td>{{.Date}}</td><td>{{.Devices}}</td><td>{{.New}}</td></tr>
+{{end}}</table>
 <h2>Access points</h2>
 <table>
-<tr><th>MAC</th><th>SSID</th><th>Channel</th><th>Security</th><th>Randomized</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Best SNR</th></tr>
-{{range .APs}}<tr><td>{{.MAC}}</td><td>{{.SSID}}</td><td>{{.Channel}}</td><td>{{.Security}}</td><td>{{.Randomized}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.BestSNR}}</td></tr>
+<tr><th>MAC</th><th>Vendor</th><th>SSID</th><th>Channel</th><th>Security</th><th>Randomized</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Best SNR</th></tr>
+{{range .APs}}<tr><td>{{.MAC}}</td><td>{{.Vendor}}</td><td>{{.SSID}}</td><td>{{.Channel}}</td><td>{{.Security}}</td><td>{{.Randomized}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.BestSNR}}</td></tr>
 {{end}}</table>
 <h2>Clients</h2>
 <table>
-<tr><th>MAC</th><th>Randomized</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Probed SSIDs</th></tr>
-{{range .Clients}}<tr><td>{{.MAC}}</td><td>{{.Randomized}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.ProbedSSIDs}}</td></tr>
+<tr><th>MAC</th><th>Vendor</th><th>Randomized</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Probed SSIDs</th></tr>
+{{range .Clients}}<tr><td>{{.MAC}}</td><td>{{.Vendor}}</td><td>{{.Randomized}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.ProbedSSIDs}}</td></tr>
 {{end}}</table>
 <h2>Top probed SSIDs</h2>
 <table>
@@ -145,10 +156,15 @@ var bluetoothPage = template.Must(template.New("bluetooth").Parse(`<!doctype htm
 <h1>Bluetooth</h1>
 <img src="/graph/ble-day.png" loading="lazy">
 <p><a href="/bluetooth/graphs">more graphs</a></p>
+<h2>Daily</h2>
+<table>
+<tr><th>Date</th><th>Devices seen</th><th>New that day</th></tr>
+{{range .Daily}}<tr><td>{{.Date}}</td><td>{{.Devices}}</td><td>{{.New}}</td></tr>
+{{end}}</table>
 <h2>Devices</h2>
 <table>
-<tr><th>Address</th><th>Type</th><th>Name</th><th>Company ID</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Best RSSI</th></tr>
-{{range .Devices}}<tr><td>{{.Address}}</td><td>{{.AddressType}}</td><td>{{.Name}}</td><td>{{.CompanyID}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.BestRSSI}}</td></tr>
+<tr><th>Address</th><th>Type</th><th>Name</th><th>Company</th><th>First seen</th><th>Last seen</th><th>Sightings</th><th>Best RSSI</th></tr>
+{{range .Devices}}<tr><td>{{.Address}}</td><td>{{.AddressType}}</td><td>{{.Name}}</td><td>{{.Company}}</td><td>{{.FirstSeen}}</td><td>{{.LastSeen}}</td><td>{{.Sightings}}</td><td>{{.BestRSSI}}</td></tr>
 {{end}}</table>`))
 
 var countsGraphsPage = template.Must(template.New("countsGraphs").Parse(`<!doctype html>
@@ -183,6 +199,7 @@ func (s *Server) band(w http.ResponseWriter, r *http.Request) {
 // wifiAPView is the display form of a store.WifiAP row.
 type wifiAPView struct {
 	MAC        string
+	Vendor     string
 	SSID       string
 	Channel    int
 	Security   string
@@ -196,6 +213,7 @@ type wifiAPView struct {
 // wifiClientView is the display form of a store.WifiClient row.
 type wifiClientView struct {
 	MAC         string
+	Vendor      string
 	Randomized  bool
 	FirstSeen   string
 	LastSeen    string
@@ -208,11 +226,35 @@ type bleDeviceView struct {
 	Address     string
 	AddressType string
 	Name        string
-	CompanyID   string
+	Company     string
 	FirstSeen   string
 	LastSeen    string
 	Sightings   int
 	BestRSSI    string
+}
+
+// vendorLabel resolves a WiFi MAC to its manufacturer. Randomized (locally
+// administered) MACs carry no real vendor, so they are labeled as such.
+func vendorLabel(mac string, randomized bool) string {
+	if randomized {
+		return "randomized"
+	}
+	if name, ok := oui.Vendor(mac); ok {
+		return name
+	}
+	return "-"
+}
+
+// companyLabel resolves a BLE manufacturer company identifier to its name,
+// falling back to the numeric id when it is unknown, or "-" when absent.
+func companyLabel(id *int) string {
+	if id == nil {
+		return "-"
+	}
+	if name, ok := oui.CompanyName(*id); ok {
+		return name
+	}
+	return strconv.Itoa(*id)
 }
 
 func strOr(p *string, fallback string) string {
@@ -256,6 +298,12 @@ func (s *Server) wifi(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load wifi report", http.StatusInternalServerError)
 		return
 	}
+	daily, err := s.reports.DailyWifi(s.now().Add(-dailyDays * 24 * time.Hour))
+	if err != nil {
+		log.Printf("web: wifi daily: %v", err)
+		http.Error(w, "failed to load wifi report", http.StatusInternalServerError)
+		return
+	}
 
 	apViews := make([]wifiAPView, len(aps))
 	for i, a := range aps {
@@ -265,6 +313,7 @@ func (s *Server) wifi(w http.ResponseWriter, r *http.Request) {
 		}
 		apViews[i] = wifiAPView{
 			MAC:        a.MAC,
+			Vendor:     vendorLabel(a.MAC, a.Randomized),
 			SSID:       ssid,
 			Channel:    a.Channel,
 			Security:   strOr(a.Security, "-"),
@@ -280,6 +329,7 @@ func (s *Server) wifi(w http.ResponseWriter, r *http.Request) {
 	for i, c := range clients {
 		clientViews[i] = wifiClientView{
 			MAC:         c.MAC,
+			Vendor:      vendorLabel(c.MAC, c.Randomized),
 			Randomized:  c.Randomized,
 			FirstSeen:   c.FirstSeen.Format(timeFormat),
 			LastSeen:    c.LastSeen.Format(timeFormat),
@@ -289,10 +339,11 @@ func (s *Server) wifi(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
+		Daily   []store.DailyRow
 		APs     []wifiAPView
 		Clients []wifiClientView
 		Probed  []store.ProbedSSID
-	}{apViews, clientViews, probed}
+	}{daily, apViews, clientViews, probed}
 	if err := wifiPage.Execute(w, data); err != nil {
 		log.Printf("web: wifi: %v", err)
 	}
@@ -313,6 +364,12 @@ func (s *Server) bluetooth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load bluetooth report", http.StatusInternalServerError)
 		return
 	}
+	daily, err := s.reports.DailyBle(s.now().Add(-dailyDays * 24 * time.Hour))
+	if err != nil {
+		log.Printf("web: bluetooth daily: %v", err)
+		http.Error(w, "failed to load bluetooth report", http.StatusInternalServerError)
+		return
+	}
 
 	deviceViews := make([]bleDeviceView, len(devices))
 	for i, d := range devices {
@@ -320,7 +377,7 @@ func (s *Server) bluetooth(w http.ResponseWriter, r *http.Request) {
 			Address:     d.Address,
 			AddressType: d.AddressType,
 			Name:        strOr(d.Name, "-"),
-			CompanyID:   intOr(d.CompanyID, "-"),
+			Company:     companyLabel(d.CompanyID),
 			FirstSeen:   d.FirstSeen.Format(timeFormat),
 			LastSeen:    d.LastSeen.Format(timeFormat),
 			Sightings:   d.Sightings,
@@ -329,8 +386,9 @@ func (s *Server) bluetooth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
+		Daily   []store.DailyRow
 		Devices []bleDeviceView
-	}{deviceViews}
+	}{daily, deviceViews}
 	if err := bluetoothPage.Execute(w, data); err != nil {
 		log.Printf("web: bluetooth: %v", err)
 	}

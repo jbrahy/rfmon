@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"sort"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -414,13 +415,24 @@ type BleDeviceRow struct {
 }
 
 // BleDevicesSince returns BLE devices last seen at or after t, most
-// recently seen first, limited to limit rows.
+// recently seen first, limited to limit rows. Rows are grouped by address:
+// an address that was seen under more than one address type is collapsed into
+// a single row whose AddressType lists the types (comma separated), summing
+// its sighting counts and keeping the widest first/last seen span.
 func (d *DB) BleDevicesSince(t time.Time, limit int) ([]BleDeviceRow, error) {
 	rows, err := d.conn.Query(
-		`SELECT ble_devices.address, ble_devices.address_type, ble_devices.name, ble_devices.company_id, ble_devices.first_seen, ble_devices.last_seen, ble_devices.sighting_count, ble_devices.best_rssi_dbm
+		`SELECT ble_devices.address,
+		        group_concat(DISTINCT ble_devices.address_type),
+		        MAX(ble_devices.name),
+		        MAX(ble_devices.company_id),
+		        MIN(ble_devices.first_seen),
+		        MAX(ble_devices.last_seen),
+		        SUM(ble_devices.sighting_count),
+		        MAX(ble_devices.best_rssi_dbm)
 		 FROM ble_devices
 		 WHERE ble_devices.last_seen >= ?
-		 ORDER BY ble_devices.last_seen DESC
+		 GROUP BY ble_devices.address
+		 ORDER BY MAX(ble_devices.last_seen) DESC
 		 LIMIT ?`,
 		formatTime(t), limit,
 	)
@@ -541,6 +553,88 @@ func (d *DB) CountsSince(t time.Time) (Counts, error) {
 	}
 	counts.BlePackets = int(blePackets.Int64)
 
+	return counts, nil
+}
+
+// DailyRow is one calendar day (UTC) of activity for a report.
+type DailyRow struct {
+	Date    string // YYYY-MM-DD, UTC
+	Devices int    // distinct devices seen that day
+	New     int    // distinct devices first seen that day
+}
+
+// DailyWifi returns per-day WiFi activity for sightings at or after t, newest
+// day first. Devices are counted by distinct MAC address (a MAC seen as both
+// an AP and a client counts once).
+func (d *DB) DailyWifi(t time.Time) ([]DailyRow, error) {
+	return d.daily(t,
+		`SELECT date(wifi_sightings.seen_at), COUNT(DISTINCT wifi_devices.mac)
+		 FROM wifi_sightings
+		 JOIN wifi_devices ON wifi_devices.wifi_device_id = wifi_sightings.wifi_device_id
+		 WHERE wifi_sightings.seen_at >= ?
+		 GROUP BY date(wifi_sightings.seen_at)`,
+		`SELECT date(wifi_devices.first_seen), COUNT(DISTINCT wifi_devices.mac)
+		 FROM wifi_devices
+		 WHERE wifi_devices.first_seen >= ?
+		 GROUP BY date(wifi_devices.first_seen)`)
+}
+
+// DailyBle returns per-day BLE activity for sightings at or after t, newest
+// day first. Devices are counted by distinct address.
+func (d *DB) DailyBle(t time.Time) ([]DailyRow, error) {
+	return d.daily(t,
+		`SELECT date(ble_sightings.seen_at), COUNT(DISTINCT ble_devices.address)
+		 FROM ble_sightings
+		 JOIN ble_devices ON ble_devices.ble_device_id = ble_sightings.ble_device_id
+		 WHERE ble_sightings.seen_at >= ?
+		 GROUP BY date(ble_sightings.seen_at)`,
+		`SELECT date(ble_devices.first_seen), COUNT(DISTINCT ble_devices.address)
+		 FROM ble_devices
+		 WHERE ble_devices.first_seen >= ?
+		 GROUP BY date(ble_devices.first_seen)`)
+}
+
+// daily runs a seen-per-day query and a new-per-day query and merges them into
+// one row per day, newest first.
+func (d *DB) daily(t time.Time, seenSQL, newSQL string) ([]DailyRow, error) {
+	seen, err := d.countByDay(seenSQL, formatTime(t))
+	if err != nil {
+		return nil, err
+	}
+	fresh, err := d.countByDay(newSQL, formatTime(t))
+	if err != nil {
+		return nil, err
+	}
+	days := make([]string, 0, len(seen))
+	for day := range seen {
+		days = append(days, day)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(days)))
+	result := make([]DailyRow, 0, len(days))
+	for _, day := range days {
+		result = append(result, DailyRow{Date: day, Devices: seen[day], New: fresh[day]})
+	}
+	return result, nil
+}
+
+func (d *DB) countByDay(query, since string) (map[string]int, error) {
+	rows, err := d.conn.Query(query, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var day string
+		var n int
+		if err := rows.Scan(&day, &n); err != nil {
+			return nil, err
+		}
+		counts[day] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return counts, nil
 }
 
