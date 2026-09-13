@@ -59,7 +59,9 @@ func main() {
 		case <-ctx.Done():
 			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			srv.Shutdown(shutdown)
+			if err := srv.Shutdown(shutdown); err != nil {
+				log.Printf("web shutdown: %v", err)
+			}
 			log.Print("rfmon: stopped")
 			return
 		case <-time.After(*pause):
